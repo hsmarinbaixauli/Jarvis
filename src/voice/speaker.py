@@ -8,32 +8,35 @@ once per process, regardless of how many times :func:`speak` is called.
 from __future__ import annotations
 
 import atexit
-from typing import Any
+import logging
 
 import pyttsx3
+
+_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
 # Module-level cache
 # ---------------------------------------------------------------------------
 
-_engine: Any | None = None
+_engine: pyttsx3.Engine | None = None
 
 
 def _cleanup_engine() -> None:
+    """Atexit handler that stops the TTS engine on process shutdown."""
     global _engine
     if _engine is not None:
         try:
             _engine.stop()
         except Exception:
-            pass
+            _log.exception("Failed to stop TTS engine during shutdown")
         _engine = None
 
 
 atexit.register(_cleanup_engine)
 
 
-def _get_engine() -> Any:
+def _get_engine() -> pyttsx3.Engine:
     """Return the cached pyttsx3 engine, initialising it on first access.
 
     Returns:
@@ -77,7 +80,7 @@ def set_voice_properties(rate: int = 150, volume: float = 0.9) -> None:
     Raises:
         RuntimeError: If the underlying TTS engine cannot be initialised.
     """
-    engine: Any = _get_engine()
+    engine: pyttsx3.Engine = _get_engine()
     engine.setProperty("rate", rate)
     engine.setProperty("volume", volume)
 
@@ -95,9 +98,9 @@ def speak(text: str) -> None:
     Raises:
         RuntimeError: If the underlying TTS engine cannot be initialised.
     """
-    if not text or not text.strip():
+    if not text.strip():
         return
 
-    engine: Any = _get_engine()
+    engine: pyttsx3.Engine = _get_engine()
     engine.say(text)
     engine.runAndWait()

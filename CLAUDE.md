@@ -22,6 +22,8 @@ using Claude API with tool use, and executes actions like querying Google Calend
 - src/transcription/whisper.py → audio to text
 - src/calendar/auth.py → Google OAuth2
 - src/calendar/events.py → Calendar API calls
+- src/gmail/auth.py → Gmail OAuth2
+- src/gmail/messages.py → Gmail API calls (list unread, send reply, mark read)
 - src/tools/definitions.py → Claude tool definitions
 - src/main.py → orchestrator / entry point
 

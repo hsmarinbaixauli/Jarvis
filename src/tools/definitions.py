@@ -87,4 +87,69 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["title", "start_datetime", "end_datetime"],
         },
     },
+    {
+        "name": "get_unread_emails",
+        "description": (
+            "Fetch unread emails from the user's Gmail inbox. Returns a list with "
+            "id, subject, sender, snippet, and date for each unread message. "
+            "Use this whenever the user asks to check, read, or summarize their email."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_results": {
+                    "type": "integer",
+                    "description": (
+                        "Maximum number of unread messages to return. Defaults to 10."
+                    ),
+                    "minimum": 1,
+                    "maximum": 25,
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "send_email_reply",
+        "description": (
+            "Send a plain-text reply to a specific email message. "
+            "IMPORTANT: Always read the recipient and the full proposed reply body "
+            "back to the user and wait for explicit verbal confirmation before "
+            "calling this tool."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": (
+                        "The id of the message to reply to, as returned by "
+                        "get_unread_emails."
+                    ),
+                },
+                "body_text": {
+                    "type": "string",
+                    "description": "The plain-text body of the reply (max 5000 characters).",
+                },
+            },
+            "required": ["message_id", "body_text"],
+        },
+    },
+    {
+        "name": "mark_email_read",
+        "description": (
+            "Mark a single email as read after the user has heard it summarized "
+            "or replied to it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": "The id of the message to mark as read.",
+                },
+            },
+            "required": ["message_id"],
+        },
+    },
 ]
