@@ -74,7 +74,7 @@ def _dispatch_tool_call(
         return get_today_events(calendar_service)
 
     if tool_name == "get_upcoming_events":
-        days: int = max(1, min(int(tool_input.get("days", 7)), 90))
+        days: int = max(1, min(int(float(tool_input.get("days", 7))), 90))
         return get_upcoming_events(calendar_service, days=days)
 
     if tool_name == "create_event":
@@ -162,23 +162,21 @@ def _run_agentic_turn(
             block for block in response.content if block.type == "tool_use"
         ]
 
-        results: list[Any] = [
-            _dispatch_tool_call(tool.name, tool.input, calendar_service)
-            for tool in tool_calls
-        ]
+        tool_results: list[dict[str, Any]] = []
+        for tool in tool_calls:
+            try:
+                result = _dispatch_tool_call(tool.name, tool.input, calendar_service)
+                content = str(result)
+            except Exception as exc:
+                content = f"Error: {exc}"
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tool.id,
+                "content": content,
+            })
 
         messages.append({"role": "assistant", "content": response.content})
-        messages.append({
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": tool.id,
-                    "content": str(result),
-                }
-                for tool, result in zip(tool_calls, results)
-            ],
-        })
+        messages.append({"role": "user", "content": tool_results})
 
         response = client.messages.create(
             model=_MODEL,
@@ -186,6 +184,9 @@ def _run_agentic_turn(
             tools=TOOLS,
             messages=messages,
         )
+
+    if _iterations >= _MAX_TOOL_ITERATIONS:
+        print(f"Warning: tool-use loop reached iteration limit ({_MAX_TOOL_ITERATIONS}).")
 
     return _extract_text(response.content)
 

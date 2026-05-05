@@ -43,6 +43,8 @@ TOOLS: list[dict[str, Any]] = [
                         "Number of days ahead to look for events, counting from "
                         "the current moment. Defaults to 7."
                     ),
+                    "minimum": 1,
+                    "maximum": 90,
                 },
             },
             "required": [],

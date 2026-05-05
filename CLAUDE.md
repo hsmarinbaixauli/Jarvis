@@ -27,7 +27,6 @@ using Claude API with tool use, and executes actions like querying Google Calend
 
 ## Code Style
 - Python type hints always
-- async/await for API calls
 - Never hardcode API keys — use .env
 - Descriptive variable names in English
 

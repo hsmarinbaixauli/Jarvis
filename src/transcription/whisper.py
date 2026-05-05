@@ -5,8 +5,8 @@ using a locally-loaded Whisper model.  The model is loaded once and cached
 at module level so repeated calls within the same process pay no reload cost.
 
 The model size defaults to ``"base"`` but can be overridden at runtime via the
-``WHISPER_MODEL`` environment variable before importing this module or calling
-:func:`transcribe_audio` for the first time.
+``WHISPER_MODEL`` environment variable; the value is read on the first call to
+:func:`transcribe_audio`.
 """
 
 from __future__ import annotations

@@ -157,28 +157,20 @@ def _to_rfc3339(dt: datetime) -> str:
 def _tz_name(dt: datetime) -> str:
     """Return a timezone name string suitable for the Google Calendar API body.
 
-    The API accepts IANA timezone names (e.g. ``"Europe/Madrid"``) as well as
-    UTC-offset strings (e.g. ``"UTC+02:00"``).  Since stdlib ``timezone``
-    objects only carry a fixed offset we use the ``UTC±HH:MM`` form here,
-    which the API accepts without issue.
+    Uses the IANA timezone name from the datetime's tzinfo when available
+    (e.g. ``"Europe/Madrid"`` from a tzlocal-produced ZoneInfo).  Falls back
+    to ``"UTC"`` when tzinfo is absent or has no string representation.
 
     Args:
         dt: A timezone-aware datetime whose ``tzinfo`` is used.
 
     Returns:
-        A string such as ``"UTC+02:00"`` or ``"UTC"`` for UTC itself.
+        An IANA timezone name string, or ``"UTC"`` as a fallback.
     """
     if dt.tzinfo is None:
         return "UTC"
-    offset: timedelta | None = dt.utcoffset()
-    if offset is None or offset == timedelta(0):
-        return "UTC"
-    total_seconds: int = int(offset.total_seconds())
-    sign: str = "+" if total_seconds >= 0 else "-"
-    total_seconds = abs(total_seconds)
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes = remainder // 60
-    return f"UTC{sign}{hours:02d}:{minutes:02d}"
+    name: str = str(dt.tzinfo)
+    return name if name else "UTC"
 
 
 def _list_events(
