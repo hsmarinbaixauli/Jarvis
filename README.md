@@ -1,14 +1,27 @@
-# 🤖 Jarvis - Voice Assistant
+# Jarvis - Voice Assistant
 
 A personal AI voice assistant powered by Claude API and Google Calendar.
 
+## Requirements
+
+- **Python 3.12** — download from [python.org/downloads](https://python.org/downloads)
+
+## Setup
+
+```bash
+python setup.py
+python -m src.main
+```
+
+That's it. `setup.py` handles Python 3.12 verification, ffmpeg installation, virtual environment creation, and dependency installation automatically.
+
 ## What it does
 
-- 🎤 Listens to your voice
-- 📝 Transcribes speech to text
-- 🧠 Claude understands your intent and executes tools
-- 📅 Queries and creates Google Calendar events
-- 🔊 Responds by voice or text
+- Listens to your voice
+- Transcribes speech to text
+- Claude understands your intent and executes tools
+- Queries and creates Google Calendar events
+- Responds by voice
 
 ## Example
 
@@ -25,21 +38,22 @@ Jarvis checks your calendar and responds with your schedule.
 - **Agents**: Claude Code with custom subagents and skills
 
 ## Project Structure
+
+```
 jarvis/
-├── .claude/
-│   ├── agents/        # Specialized subagents
-│   └── skills/        # Task-specific skills
+├── setup.py           # One-shot setup
 ├── src/
+│   ├── main.py        # Entry point
 │   ├── voice/         # Audio input/output
 │   ├── transcription/ # Speech-to-text
-│   ├── calendar/      # Google Calendar integration
+│   ├── gcalendar/     # Google Calendar integration
+│   ├── gmail/         # Gmail integration
 │   └── tools/         # Claude tool definitions
-└── main.py            # Entry point
-
-## Status
-
-🚧 MVP in development
+└── .claude/
+    ├── agents/        # Specialized subagents
+    └── skills/        # Task-specific skills
+```
 
 ## Author
 
-Hugo - learning to build AI agents with Claude Code
+Hugo

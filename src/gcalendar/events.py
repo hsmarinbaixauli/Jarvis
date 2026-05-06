@@ -36,7 +36,7 @@ def get_today_events(service: Resource) -> list[dict[str, Any]]:
 
     Args:
         service: An authenticated Google Calendar API service object as
-            returned by :func:`src.calendar.auth.get_calendar_service`.
+            returned by :func:`src.gcalendar.auth.get_calendar_service`.
 
     Returns:
         A list of event dicts as returned by the Google Calendar API.  Each
@@ -57,7 +57,7 @@ def get_upcoming_events(service: Resource, days: int = 7) -> list[dict[str, Any]
 
     Args:
         service: An authenticated Google Calendar API service object as
-            returned by :func:`src.calendar.auth.get_calendar_service`.
+            returned by :func:`src.gcalendar.auth.get_calendar_service`.
         days: Number of days ahead to include, counting from the current
             moment.  Defaults to ``7``.
 
@@ -83,7 +83,7 @@ def create_event(
 
     Args:
         service: An authenticated Google Calendar API service object as
-            returned by :func:`src.calendar.auth.get_calendar_service`.
+            returned by :func:`src.gcalendar.auth.get_calendar_service`.
         title: The event summary / title shown in the calendar UI.
         start_datetime: A timezone-aware :class:`~datetime.datetime` for the
             event start.  If a naive datetime is supplied it is assumed to be

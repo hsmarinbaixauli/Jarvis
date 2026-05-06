@@ -1,106 +1,102 @@
-"""Text-to-speech output via pyttsx3.
+"""Text-to-speech output via Google Cloud Text-to-Speech API.
 
-Converts a text string to spoken audio through the default system TTS engine.
-The pyttsx3 engine is initialised lazily at module level so it is created only
-once per process, regardless of how many times :func:`speak` is called.
+Converts a text string to spoken audio using the Neural2 Spanish female voice
+(es-ES-Neural2-A), writes the LINEAR16 wav to a temporary file, and plays it
+back through sounddevice.
 """
 
 from __future__ import annotations
 
-import atexit
+import io
 import logging
+import os
+import tempfile
 
-import pyttsx3
+import sounddevice as sd
+import soundfile as sf
+from google.cloud import texttospeech
 
 _log = logging.getLogger(__name__)
 
+_client: texttospeech.TextToSpeechClient | None = None
+_volume: float = 0.9
+_speaking_rate: float = 1.0
+_pitch: float = 0.0
 
-# ---------------------------------------------------------------------------
-# Module-level cache
-# ---------------------------------------------------------------------------
-
-_engine: pyttsx3.Engine | None = None
-
-
-def _cleanup_engine() -> None:
-    """Atexit handler that stops the TTS engine on process shutdown."""
-    global _engine
-    if _engine is not None:
-        try:
-            _engine.stop()
-        except Exception:
-            _log.exception("Failed to stop TTS engine during shutdown")
-        _engine = None
+_VOICE = texttospeech.VoiceSelectionParams(
+    language_code="es-ES",
+    name="es-ES-Neural2-A",
+)
+_AUDIO_CONFIG = texttospeech.AudioConfig(
+    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+    speaking_rate=_speaking_rate,
+    pitch=_pitch,
+)
 
 
-atexit.register(_cleanup_engine)
-
-
-def _get_engine() -> pyttsx3.Engine:
-    """Return the cached pyttsx3 engine, initialising it on first access.
-
-    Returns:
-        The initialised ``pyttsx3.Engine`` instance.
-
-    Raises:
-        RuntimeError: If ``pyttsx3.init()`` fails to create a TTS engine on
-            the current platform.
-    """
-    global _engine
-    if _engine is None:
-        try:
-            _engine = pyttsx3.init()
-        except Exception as exc:
+def _get_client() -> texttospeech.TextToSpeechClient:
+    global _client
+    if _client is None:
+        credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if credentials_path and not os.path.isfile(credentials_path):
             raise RuntimeError(
-                "Failed to initialise the pyttsx3 TTS engine. "
-                "Ensure a supported speech-synthesis driver is available on "
-                "this platform (e.g. SAPI5 on Windows, espeak on Linux, "
-                "NSSpeechSynthesizer on macOS)."
-            ) from exc
-    return _engine
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+                f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file: {credentials_path}"
+            )
+        _client = texttospeech.TextToSpeechClient()
+    return _client
 
 
 def set_voice_properties(rate: int = 150, volume: float = 0.9) -> None:
-    """Configure speaking rate and volume on the cached TTS engine.
-
-    Can be called multiple times; each call updates the live engine without
-    re-initialising it.  If the engine has not yet been created it will be
-    initialised as a side-effect of this call.
+    """Set playback volume. The rate parameter is not applicable to Google Cloud TTS.
 
     Args:
-        rate: Speech rate in words per minute.  Defaults to ``150``.
-        volume: Output volume in the range ``0.0`` (silent) to ``1.0``
-            (maximum).  Defaults to ``0.9``.
-
-    Raises:
-        RuntimeError: If the underlying TTS engine cannot be initialised.
+        rate: Ignored — speaking rate is fixed at 1.0 via the API config.
+        volume: Playback volume in the range 0.0–1.0. Defaults to 0.9.
     """
-    engine: pyttsx3.Engine = _get_engine()
-    engine.setProperty("rate", rate)
-    engine.setProperty("volume", volume)
+    global _volume
+    _volume = max(0.0, min(1.0, volume))
 
 
 def speak(text: str) -> None:
-    """Speak *text* aloud using the system TTS engine.
+    """Speak *text* aloud using Google Cloud TTS (voice: es-ES-Neural2-A).
 
-    The call blocks until the engine has finished rendering the audio.  If
-    *text* is empty or contains only whitespace the function returns immediately
-    without producing any audio.
+    The call blocks until playback is complete. Returns immediately if *text*
+    is empty or whitespace-only.
 
     Args:
         text: The string to be spoken.
 
     Raises:
-        RuntimeError: If the underlying TTS engine cannot be initialised.
+        RuntimeError: If credentials are missing or the API call fails.
     """
     if not text.strip():
         return
 
-    engine: pyttsx3.Engine = _get_engine()
-    engine.say(text)
-    engine.runAndWait()
+    client = _get_client()
+
+    synthesis_input = texttospeech.SynthesisInput(text=text)
+    try:
+        response = client.synthesize_speech(
+            input=synthesis_input,
+            voice=_VOICE,
+            audio_config=_AUDIO_CONFIG,
+        )
+    except Exception:
+        _log.exception("Google Cloud TTS synthesis failed")
+        return
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = tmp.name
+        tmp.write(response.audio_content)
+
+    try:
+        data, samplerate = sf.read(tmp_path, dtype="float32")
+        sd.play(data * _volume, samplerate=samplerate)
+        sd.wait()
+    except Exception:
+        _log.exception("Failed to play TTS audio")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass

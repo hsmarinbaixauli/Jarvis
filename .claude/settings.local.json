@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m src.main)",
+      "Bash(pip install *)",
+      "Bash(python -c \"import sounddevice; import soundfile; print\\('sounddevice+soundfile ok'\\)\")",
+      "Bash(python -c \"from google.cloud import texttospeech; from src.voice.speaker import speak, set_voice_properties; print\\('speaker import ok'\\)\")"
+    ]
+  }
+}

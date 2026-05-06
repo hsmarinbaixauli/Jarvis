@@ -19,6 +19,7 @@ import logging
 import os
 import sys
 import tempfile
+import webbrowser
 from datetime import datetime
 from typing import Any
 
@@ -26,8 +27,8 @@ import anthropic
 from dotenv import load_dotenv
 from googleapiclient.discovery import Resource
 
-from src.calendar.auth import get_calendar_service
-from src.calendar.events import create_event, get_today_events, get_upcoming_events
+from src.gcalendar.auth import get_calendar_service
+from src.gcalendar.events import create_event, get_today_events, get_upcoming_events
 from src.gmail.auth import get_gmail_service
 from src.gmail.messages import get_unread_messages, mark_as_read, send_reply
 from src.tools.definitions import TOOLS
@@ -52,14 +53,25 @@ _RECORD_DURATION: int = 5
 _MAX_TOOL_ITERATIONS: int = 10
 _MAX_TRANSCRIPT_LENGTH: int = 2000  # guard against Whisper hallucinations / cost abuse
 _SYSTEM_PROMPT: str = (
-    "Eres Jarvis, un asistente personal por voz. "
+    "Eres Jarvis, el asistente personal de Hugo. "
+    "Tono: útil, ligeramente ingenioso, conciso. Como un asistente inteligente que conoce bien a Hugo. "
     "Responde siempre en español, con frases cortas y naturales, pensadas para ser escuchadas, no leídas. "
-    "Evita listas, formato markdown y respuestas largas. "
+    "Evita listas, formato markdown y respuestas largas — esto es voz, no texto. "
+    "Usa el nombre de Hugo con naturalidad, pero no en cada frase. "
+    "Al iniciar la sesión del día, consulta el calendario y saluda con un resumen breve: "
+    "por ejemplo, 'Buenos días Hugo. Tienes 3 reuniones hoy. La primera es a las 10 con el equipo. ¿Qué más necesitas?' "
+    "Si no hay nada en la agenda: 'Agenda libre hoy. Aprovecha.' "
+    "Humor ligero cuando sea apropiado, nunca forzado. "
+    "Nunca digas '¿En qué puedo ayudarte?' ni frases genéricas de asistente. "
     "Antes de llamar a send_email_reply, lee en voz alta el destinatario y el cuerpo completo del mensaje "
     "y espera confirmación verbal explícita del usuario en el siguiente turno."
 )
-_GREETING: str = "¡Hola! Soy Jarvis, tu asistente personal. ¿En qué puedo ayudarte?"
-_GOODBYE: str = "¡Hasta luego! Que tengas un buen día."
+_GREETING: str = "Buenos días Hugo. ¿Qué necesitas?"
+_GOODBYE: str = "Hasta luego Hugo. Avisa si me necesitas."
+_STARTUP_PROMPT: str = (
+    "Inicio de sesión. Consulta el calendario de hoy y saluda a Hugo con un resumen de sus eventos. "
+    "Si no hay eventos, di exactamente: 'Agenda libre hoy. Aprovecha.' Sé breve y natural."
+)
 _FALLBACK: str = "Done."
 
 
@@ -297,8 +309,19 @@ def main() -> None:
 
     set_voice_properties(rate=150, volume=0.9)
 
+    _log.info("Opening startup tabs.")
+    for url in ("https://youtube.com", "https://claude.ai", "https://instagram.com"):
+        webbrowser.open(url)
+
     _log.info("Jarvis is ready.")
-    speak(_GREETING)
+    try:
+        startup_text: str = _run_agentic_turn(
+            client, _STARTUP_PROMPT, calendar_service, gmail_service
+        )
+        speak(startup_text if startup_text else _GREETING)
+    except Exception:
+        _log.exception("Error generating startup greeting")
+        speak(_GREETING)
 
     # --- Main loop ---
     try:

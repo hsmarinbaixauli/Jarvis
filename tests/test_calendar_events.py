@@ -1,8 +1,8 @@
-"""Unit tests for src/calendar/events.py.
+"""Unit tests for src/gcalendar/events.py.
 
 All tests use mocks — no real Google API calls are made.
 tzlocal is not required by the test environment — _local_timezone is patched
-at module level so the import of src.calendar.events succeeds even when
+at module level so the import of src.gcalendar.events succeeds even when
 tzlocal is absent.
 """
 
@@ -23,7 +23,7 @@ if "tzlocal" not in sys.modules:
     _stub.get_localzone = lambda: timezone.utc  # type: ignore[attr-defined]
     sys.modules["tzlocal"] = _stub
 
-from src.calendar.events import create_event, get_upcoming_events  # noqa: E402
+from src.gcalendar.events import create_event, get_upcoming_events  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

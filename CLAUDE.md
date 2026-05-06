@@ -11,17 +11,21 @@ using Claude API with tool use, and executes actions like querying Google Calend
 - Google Calendar API (OAuth2)
 - TTS for voice responses
 
+## Requirements
+- Python 3.12
+- ffmpeg (installed automatically by setup.py)
+
 ## Commands
-- Dev: `python src/main.py`
+- Setup: `python setup.py`
+- Dev: `python -m src.main`
 - Tests: `pytest tests/`
-- Install deps: `pip install -r requirements.txt`
 
 ## Architecture
 - src/voice/listener.py → captures microphone audio
 - src/voice/speaker.py → text-to-speech output
 - src/transcription/whisper.py → audio to text
-- src/calendar/auth.py → Google OAuth2
-- src/calendar/events.py → Calendar API calls
+- src/gcalendar/auth.py → Google OAuth2
+- src/gcalendar/events.py → Calendar API calls
 - src/gmail/auth.py → Gmail OAuth2
 - src/gmail/messages.py → Gmail API calls (list unread, send reply, mark read)
 - src/tools/definitions.py → Claude tool definitions

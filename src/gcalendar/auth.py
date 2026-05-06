@@ -30,7 +30,7 @@ from googleapiclient.discovery import Resource
 SCOPES: list[str] = ["https://www.googleapis.com/auth/calendar"]
 
 # Resolve paths relative to the project root (two levels above this file:
-# src/calendar/auth.py  ->  project root)
+# src/gcalendar/auth.py  ->  project root)
 _PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 _CREDENTIALS_PATH: Path = _PROJECT_ROOT / "credentials" / "credentials.json"
 _TOKEN_PATH: Path = _PROJECT_ROOT / "credentials" / "token.json"
