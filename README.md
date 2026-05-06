@@ -13,7 +13,17 @@ python setup.py
 python -m src.main
 ```
 
-That's it. `setup.py` handles Python 3.12 verification, ffmpeg installation, virtual environment creation, and dependency installation automatically.
+`setup.py` handles Python 3.12 verification, ffmpeg installation, virtual environment creation, and dependency installation automatically.
+
+## Autostart on Windows login
+
+To have Jarvis launch automatically every time Windows starts, run once:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File setup_autostart.ps1
+```
+
+This creates a shortcut in `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup` that opens Jarvis minimized in the background. To disable autostart, delete the shortcut from that folder (or run `Remove-Item` with the path printed by the script).
 
 ## What it does
 

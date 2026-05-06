@@ -159,5 +159,7 @@ def _restrict_token_file(path: Path) -> None:
 def _save_token(creds: Credentials, token_path: Path) -> None:
     """Persist *creds* to *token_path* as JSON."""
     token_path.parent.mkdir(parents=True, exist_ok=True)
+    if token_path.exists():
+        token_path.unlink()
     token_path.write_text(creds.to_json(), encoding="utf-8")
     _restrict_token_file(token_path)

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import sys
 import tempfile
 import webbrowser
@@ -31,10 +32,12 @@ from src.gcalendar.auth import get_calendar_service
 from src.gcalendar.events import create_event, get_today_events, get_upcoming_events
 from src.gmail.auth import get_gmail_service
 from src.gmail.messages import get_unread_messages, mark_as_read, send_reply
+from src.intent.goodbye import is_goodbye
 from src.tools.definitions import TOOLS
 from src.transcription.whisper import transcribe_audio
 from src.voice.listener import record_audio
 from src.voice.speaker import set_voice_properties, speak
+from src.voice.wake_word import WakeWordDetector
 from src.weather.client import get_current_weather
 from src.weather.summary import format_weather_for_greeting
 
@@ -86,10 +89,16 @@ _SYSTEM_PROMPT: str = (
     "Para controlar la música usa las herramientas spotify_*. "
     "Cuando Hugo diga 'pon jazz', 'pon algo de Miles Davis', llama a spotify_play con el query. "
     "Cuando diga 'para' o 'pausa', llama a spotify_pause. 'Siguiente' o 'salta' usa spotify_next. "
-    "Si Spotify devuelve no_active_device, dile a Hugo que abra Spotify en algún dispositivo."
+    "Si Spotify devuelve no_active_device tras el reintento automático, dile a Hugo que abra Spotify manualmente en algún dispositivo."
 )
 _GREETING: str = "Buenos días Hugo. ¿Qué necesitas?"
 _GOODBYE: str = "Hasta luego Hugo. Avisa si me necesitas."
+_FAREWELLS: tuple[str, ...] = (
+    "¡Hasta luego, Hugo!",
+    "¡Adiós!",
+    "Hasta pronto.",
+    "Hasta luego. Aquí estaré cuando me necesites.",
+)
 _FALLBACK: str = "Done."
 
 
@@ -393,7 +402,8 @@ def _init_services() -> tuple[anthropic.Anthropic, Resource, Resource, Any | Non
     """Load environment variables and initialise all external services.
 
     Returns:
-        A tuple of ``(anthropic_client, calendar_service, gmail_service, spotify_client)``.
+        A tuple of ``(anthropic_client, calendar_service, gmail_service,
+        spotify_client)``.
         ``spotify_client`` is ``None`` when Spotify env vars are missing or auth fails.
 
     Raises:
@@ -463,11 +473,21 @@ def main() -> None:
         speak(_GREETING)
 
     # --- Main loop ---
-    try:
+    def _interaction_loop(detector: WakeWordDetector | None) -> None:
+        """Run the listen → transcribe → respond loop.
+
+        When *detector* is provided, waits for the wake word before each
+        recording.  When None, records immediately (fallback mode).
+        """
         while True:
             fd, audio_path = tempfile.mkstemp(suffix=".wav")
             os.close(fd)
             try:
+                if detector is not None:
+                    _log.info("Waiting for wake word...")
+                    detector.wait_for_wake_word()
+                    speak("¿Sí?")
+
                 _log.info("Listening...")
                 record_audio(duration=_RECORD_DURATION, output_path=audio_path)
 
@@ -486,23 +506,44 @@ def main() -> None:
 
                 _log.info("You said: %s", user_text)
 
+                if is_goodbye(user_text):
+                    farewell = random.choice(_FAREWELLS)
+                    _log.info("Goodbye detected — exiting.")
+                    speak(farewell)
+                    return
+
                 final_text: str = _run_agentic_turn(
                     client, user_text, calendar_service, gmail_service, spotify_client
                 )
 
                 if final_text:
                     _log.info("Jarvis: %s", final_text)
+                    if detector is not None:
+                        detector.set_speaking(True)
                     speak(final_text)
+                    if detector is not None:
+                        detector.set_speaking(False)
                 else:
                     speak(_FALLBACK)
             except Exception:
                 _log.exception("Error in main loop")
+                if detector is not None:
+                    detector.set_speaking(False)
             finally:
                 try:
                     os.unlink(audio_path)
                 except OSError:
                     pass
 
+    try:
+        try:
+            with WakeWordDetector() as detector:
+                _interaction_loop(detector)
+        except RuntimeError as exc:
+            _log.warning(
+                "Wake word unavailable (%s) — recording continuously without wake word.", exc
+            )
+            _interaction_loop(None)
     except KeyboardInterrupt:
         _log.info(_GOODBYE)
         speak(_GOODBYE)
