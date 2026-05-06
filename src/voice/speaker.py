@@ -1,8 +1,8 @@
-"""Text-to-speech output via Google Cloud Text-to-Speech API.
+"""Text-to-speech output via ElevenLabs API.
 
-Converts a text string to spoken audio using the Neural2 Spanish female voice
-(es-ES-Neural2-A), writes the LINEAR16 wav to a temporary file, and plays it
-back through sounddevice.
+Converts a text string to spoken audio using ElevenLabs eleven_multilingual_v2
+(raw PCM 22050 Hz output), wraps the PCM bytes in a WAV container in memory,
+and plays it back through sounddevice / soundfile.
 """
 
 from __future__ import annotations
@@ -10,47 +10,51 @@ from __future__ import annotations
 import io
 import logging
 import os
-import tempfile
+import wave
 
 import sounddevice as sd
 import soundfile as sf
-from google.cloud import texttospeech
+from elevenlabs.client import ElevenLabs
 
 _log = logging.getLogger(__name__)
 
-_client: texttospeech.TextToSpeechClient | None = None
+_client: ElevenLabs | None = None
 _volume: float = 0.9
-_speaking_rate: float = 1.0
-_pitch: float = 0.0
 
-_VOICE = texttospeech.VoiceSelectionParams(
-    language_code="es-ES",
-    name="es-ES-Neural2-A",
-)
-_AUDIO_CONFIG = texttospeech.AudioConfig(
-    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-    speaking_rate=_speaking_rate,
-    pitch=_pitch,
-)
+_MODEL_ID: str = "eleven_multilingual_v2"
+_OUTPUT_FORMAT: str = "pcm_22050"
+_SAMPLE_RATE: int = 22050
 
 
-def _get_client() -> texttospeech.TextToSpeechClient:
+def _get_client() -> ElevenLabs:
     global _client
     if _client is None:
-        credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        if credentials_path and not os.path.isfile(credentials_path):
-            raise RuntimeError(
-                f"GOOGLE_APPLICATION_CREDENTIALS points to a missing file: {credentials_path}"
-            )
-        _client = texttospeech.TextToSpeechClient()
+        api_key: str | None = os.environ.get("ELEVENLABS_API_KEY")
+        if not api_key:
+            raise RuntimeError("ELEVENLABS_API_KEY is not set.")
+        _client = ElevenLabs(api_key=api_key)
     return _client
 
 
+def _pcm_to_wav(pcm_data: bytes) -> bytes:
+    """Wrap raw 16-bit mono PCM bytes in an in-memory WAV container."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # 16-bit
+        wf.setframerate(_SAMPLE_RATE)
+        wf.writeframes(pcm_data)
+    return buf.getvalue()
+
+
 def set_voice_properties(rate: int = 150, volume: float = 0.9) -> None:
-    """Set playback volume. The rate parameter is not applicable to Google Cloud TTS.
+    """Set playback volume.
+
+    The rate parameter is accepted for interface compatibility but is not used —
+    speaking rate is controlled by ElevenLabs voice settings in the dashboard.
 
     Args:
-        rate: Ignored — speaking rate is fixed at 1.0 via the API config.
+        rate: Ignored.
         volume: Playback volume in the range 0.0–1.0. Defaults to 0.9.
     """
     global _volume
@@ -58,45 +62,40 @@ def set_voice_properties(rate: int = 150, volume: float = 0.9) -> None:
 
 
 def speak(text: str) -> None:
-    """Speak *text* aloud using Google Cloud TTS (voice: es-ES-Neural2-A).
+    """Speak *text* aloud using ElevenLabs (model: eleven_multilingual_v2).
 
     The call blocks until playback is complete. Returns immediately if *text*
     is empty or whitespace-only.
 
     Args:
         text: The string to be spoken.
-
-    Raises:
-        RuntimeError: If credentials are missing or the API call fails.
     """
     if not text.strip():
         return
 
-    client = _get_client()
-
-    synthesis_input = texttospeech.SynthesisInput(text=text)
-    try:
-        response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=_VOICE,
-            audio_config=_AUDIO_CONFIG,
-        )
-    except Exception:
-        _log.exception("Google Cloud TTS synthesis failed")
+    voice_id: str = os.environ.get("ELEVENLABS_VOICE_ID", "")
+    if not voice_id:
+        _log.error("ELEVENLABS_VOICE_ID is not set — skipping speak().")
         return
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp_path = tmp.name
-        tmp.write(response.audio_content)
+    try:
+        client = _get_client()
+        pcm_bytes: bytes = b"".join(
+            client.text_to_speech.convert(
+                voice_id=voice_id,
+                model_id=_MODEL_ID,
+                text=text,
+                output_format=_OUTPUT_FORMAT,
+            )
+        )
+    except Exception:
+        _log.exception("ElevenLabs TTS synthesis failed")
+        return
 
     try:
-        data, samplerate = sf.read(tmp_path, dtype="float32")
+        wav_bytes = _pcm_to_wav(pcm_bytes)
+        data, samplerate = sf.read(io.BytesIO(wav_bytes), dtype="float32")
         sd.play(data * _volume, samplerate=samplerate)
         sd.wait()
     except Exception:
         _log.exception("Failed to play TTS audio")
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass

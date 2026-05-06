@@ -98,6 +98,16 @@ _FALLBACK: str = "Done."
 # ---------------------------------------------------------------------------
 
 
+def _warm_greeting() -> str:
+    """Return a time-appropriate Spanish greeting for the immediate startup speak."""
+    hour: int = datetime.now().hour
+    if 6 <= hour < 12:
+        return "Buenos días Hugo, dame un momento..."
+    if 12 <= hour < 20:
+        return "Buenas tardes Hugo, déjame ver qué tienes..."
+    return "Buenas noches Hugo, enseguida te pongo al día..."
+
+
 def _open_startup_tabs() -> None:
     """Open all configured startup URLs in the default browser.
 
@@ -431,6 +441,8 @@ def main() -> None:
     client, calendar_service, gmail_service, spotify_client = _init_services()
 
     set_voice_properties(rate=150, volume=0.9)
+
+    speak(_warm_greeting())
 
     _open_startup_tabs()
 
