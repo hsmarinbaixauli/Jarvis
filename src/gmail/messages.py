@@ -14,6 +14,9 @@ from typing import Any
 
 from googleapiclient.discovery import Resource
 
+# Module-level cache so the profile API is called at most once per process.
+_sender_email_cache: dict[int, str] = {}
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -42,6 +45,21 @@ def get_unread_messages(
         .execute()
     )
     raw_messages: list[dict[str, Any]] = result.get("messages", [])
+
+    # Paginate until the cap is reached or the API has no more pages.
+    while "nextPageToken" in result and len(raw_messages) < max_results:
+        result = (
+            service.users()
+            .messages()
+            .list(
+                userId="me",
+                q="is:unread in:inbox",
+                maxResults=max_results - len(raw_messages),
+                pageToken=result["nextPageToken"],
+            )
+            .execute()
+        )
+        raw_messages.extend(result.get("messages", []))
 
     output: list[dict[str, Any]] = []
     for msg in raw_messages:
@@ -129,12 +147,14 @@ def send_reply(
     if not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
 
+    sender_email: str = _get_sender_email(service)
     raw: str = _build_raw_reply(
         to=original["sender"],
         subject=subject,
         body_text=body_text,
         in_reply_to=original["message_id_header"],
         references=original["references"],
+        sender_email=sender_email,
     )
 
     sent: dict[str, Any] = (
@@ -166,6 +186,25 @@ def mark_as_read(service: Resource, message_id: str) -> None:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _get_sender_email(service: Resource) -> str:
+    """Return the authenticated user's email address.
+
+    Calls ``users().getProfile()`` on first use and caches the result for the
+    lifetime of the process so subsequent calls are free.
+
+    Args:
+        service: Authenticated Gmail API service object.
+
+    Returns:
+        The email address string associated with the authenticated account.
+    """
+    key: int = id(service)
+    if key not in _sender_email_cache:
+        profile: dict[str, Any] = service.users().getProfile(userId="me").execute()
+        _sender_email_cache[key] = profile["emailAddress"]
+    return _sender_email_cache[key]
 
 
 def _extract_header(headers: list[dict[str, str]], name: str) -> str:
@@ -206,6 +245,7 @@ def _build_raw_reply(
     body_text: str,
     in_reply_to: str,
     references: str,
+    sender_email: str = "",
 ) -> str:
     """Build a base64url-encoded RFC 5322 reply message.
 
@@ -215,11 +255,16 @@ def _build_raw_reply(
         body_text: Plain-text message body.
         in_reply_to: Original ``Message-ID`` header value.
         references: Original ``References`` header value (may be empty).
+        sender_email: The authenticated sender's email address for the
+            ``From`` header.  When empty the header is omitted and the Gmail
+            API infers it from the authenticated account.
 
     Returns:
         Base64url-encoded string ready for the Gmail API ``raw`` field.
     """
     msg: email.message.EmailMessage = email.message.EmailMessage()
+    if sender_email:
+        msg["From"] = sender_email
     msg["To"] = to
     msg["Subject"] = subject
     if in_reply_to:

@@ -10,8 +10,13 @@ scopes never invalidates the Calendar token.
 
 from __future__ import annotations
 
+import logging
 import os
+import subprocess
+import sys
 from pathlib import Path
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -133,8 +138,30 @@ def _refresh_or_reauthorise(
     return creds
 
 
+def _restrict_token_file(path: Path) -> None:
+    """Restrict *path* so only the current user can read it.
+
+    On Windows uses ``icacls`` to remove inherited ACEs and grant the current
+    user read-only access.  On other platforms falls back to ``chmod 600``.
+    """
+    if sys.platform == "win32":
+        username: str | None = os.getenv("USERNAME")
+        if not username:
+            logger.warning("Could not determine USERNAME; token file ACL not restricted: %s", path)
+            return
+        try:
+            subprocess.run(
+                ["icacls", str(path), "/inheritance:r", "/grant:r", f"{username}:R"],
+                check=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("icacls failed to restrict token file %s: %s", path, exc)
+    else:
+        os.chmod(path, 0o600)
+
+
 def _save_token(creds: Credentials, token_path: Path) -> None:
     """Persist *creds* to *token_path* as JSON."""
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token_path.write_text(creds.to_json(), encoding="utf-8")
-    os.chmod(token_path, 0o600)
+    _restrict_token_file(token_path)

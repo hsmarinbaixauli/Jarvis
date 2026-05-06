@@ -188,7 +188,9 @@ def _list_events(
     Returns:
         List of event dicts ordered by start time.
     """
-    result: dict[str, Any] = (
+    _MAX_RESULTS: int = 250  # Hard cap across all pages.
+
+    events_result: dict[str, Any] = (
         service.events()
         .list(
             calendarId="primary",
@@ -196,7 +198,27 @@ def _list_events(
             timeMax=_to_rfc3339(time_max),
             singleEvents=True,
             orderBy="startTime",
+            maxResults=_MAX_RESULTS,
         )
         .execute()
     )
-    return result.get("items", [])
+    items: list[dict[str, Any]] = events_result.get("items", [])
+
+    # Paginate until the hard cap is reached or the API has no more pages.
+    while "nextPageToken" in events_result and len(items) < _MAX_RESULTS:
+        events_result = (
+            service.events()
+            .list(
+                calendarId="primary",
+                timeMin=_to_rfc3339(time_min),
+                timeMax=_to_rfc3339(time_max),
+                singleEvents=True,
+                orderBy="startTime",
+                maxResults=_MAX_RESULTS - len(items),
+                pageToken=events_result["nextPageToken"],
+            )
+            .execute()
+        )
+        items.extend(events_result.get("items", []))
+
+    return items
