@@ -52,12 +52,14 @@ _RECORD_DURATION: int = 5
 _MAX_TOOL_ITERATIONS: int = 10
 _MAX_TRANSCRIPT_LENGTH: int = 2000  # guard against Whisper hallucinations / cost abuse
 _SYSTEM_PROMPT: str = (
-    "Before calling send_email_reply, always read the recipient and the full "
-    "proposed reply body back to the user and wait for explicit verbal "
-    "confirmation in the next turn."
+    "Eres Jarvis, un asistente personal por voz. "
+    "Responde siempre en español, con frases cortas y naturales, pensadas para ser escuchadas, no leídas. "
+    "Evita listas, formato markdown y respuestas largas. "
+    "Antes de llamar a send_email_reply, lee en voz alta el destinatario y el cuerpo completo del mensaje "
+    "y espera confirmación verbal explícita del usuario en el siguiente turno."
 )
-_GREETING: str = "Hello! I am Jarvis, your personal assistant. How can I help you today?"
-_GOODBYE: str = "Goodbye! Have a great day."
+_GREETING: str = "¡Hola! Soy Jarvis, tu asistente personal. ¿En qué puedo ayudarte?"
+_GOODBYE: str = "¡Hasta luego! Que tengas un buen día."
 _FALLBACK: str = "Done."
 
 
