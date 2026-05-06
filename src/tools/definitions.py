@@ -1,4 +1,4 @@
-"""Anthropic tool definitions for Jarvis calendar capabilities.
+"""Anthropic tool definitions for Jarvis capabilities.
 
 Exports a single ``TOOLS`` list that can be passed directly as the ``tools=``
 argument to any Anthropic API call.  This module contains no runtime logic —
@@ -151,5 +151,96 @@ TOOLS: list[dict[str, Any]] = [
             },
             "required": ["message_id"],
         },
+    },
+    {
+        "name": "get_current_weather",
+        "description": (
+            "Get the current weather for a city using OpenWeatherMap. "
+            "Returns temperature in degrees, a short Spanish description, humidity and wind. "
+            "Use this whenever the user asks about the weather, temperature, rain, "
+            "or whether to take an umbrella."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {
+                    "type": "string",
+                    "description": (
+                        "City in OpenWeatherMap format, e.g. \"Valencia,ES\" or "
+                        "\"Madrid,ES\". If omitted, the default city from the "
+                        "OPENWEATHER_CITY environment variable is used."
+                    ),
+                },
+                "units": {
+                    "type": "string",
+                    "enum": ["metric", "imperial"],
+                    "description": "Temperature units. Defaults to \"metric\" (Celsius).",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "spotify_play",
+        "description": (
+            "Start or resume Spotify playback. If a search query is provided "
+            "(genre, artist, album, song name, mood), search Spotify and start "
+            "playing the best match. If omitted, simply resumes whatever is "
+            "currently loaded. Returns track info or no_active_device if Spotify "
+            "is not open on any device."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Optional free-text search: 'jazz', 'Bad Bunny', 'lofi "
+                        "para estudiar', 'Kind of Blue'. Omit to resume."
+                    ),
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "spotify_pause",
+        "description": "Pause Spotify playback on the active device.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "spotify_next",
+        "description": "Skip to the next track on the active Spotify device.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "spotify_previous",
+        "description": "Go back to the previous track on the active Spotify device.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "spotify_set_volume",
+        "description": "Set Spotify volume on the active device (0-100).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "volume_percent": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "Volume percentage from 0 (mute) to 100 (max).",
+                },
+            },
+            "required": ["volume_percent"],
+        },
+    },
+    {
+        "name": "spotify_current_track",
+        "description": (
+            "Return the currently playing Spotify track (artist, title, album, "
+            "playback progress). Use when the user asks '¿qué suena ahora?' or "
+            "'¿qué canción es esta?'."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
     },
 ]

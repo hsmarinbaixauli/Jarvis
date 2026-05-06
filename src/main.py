@@ -3,8 +3,8 @@
 Orchestrates the full voice-assistant loop:
   1. Record audio from the microphone.
   2. Transcribe with Whisper.
-  3. Send the transcript to Claude (with calendar and Gmail tools).
-  4. Execute any tool calls Claude requests against Google Calendar or Gmail.
+  3. Send the transcript to Claude (with calendar, Gmail, weather and Spotify tools).
+  4. Execute any tool calls Claude requests.
   5. Speak the final text response aloud.
 
 Run with:
@@ -35,6 +35,24 @@ from src.tools.definitions import TOOLS
 from src.transcription.whisper import transcribe_audio
 from src.voice.listener import record_audio
 from src.voice.speaker import set_voice_properties, speak
+from src.weather.client import get_current_weather
+from src.weather.summary import format_weather_for_greeting
+
+# Spotify is optional — if spotipy is not installed or env vars are missing,
+# spotify_client stays None and Spotify tools return a friendly error message.
+try:
+    from src.spotify.auth import get_spotify_client
+    from src.spotify.playback import (
+        get_current_track,
+        next_track,
+        pause,
+        play,
+        previous_track,
+        set_volume,
+    )
+    _SPOTIFY_AVAILABLE: bool = True
+except ImportError:
+    _SPOTIFY_AVAILABLE = False
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,15 +82,74 @@ _SYSTEM_PROMPT: str = (
     "Humor ligero cuando sea apropiado, nunca forzado. "
     "Nunca digas '¿En qué puedo ayudarte?' ni frases genéricas de asistente. "
     "Antes de llamar a send_email_reply, lee en voz alta el destinatario y el cuerpo completo del mensaje "
-    "y espera confirmación verbal explícita del usuario en el siguiente turno."
+    "y espera confirmación verbal explícita del usuario en el siguiente turno. "
+    "Para controlar la música usa las herramientas spotify_*. "
+    "Cuando Hugo diga 'pon jazz', 'pon algo de Miles Davis', llama a spotify_play con el query. "
+    "Cuando diga 'para' o 'pausa', llama a spotify_pause. 'Siguiente' o 'salta' usa spotify_next. "
+    "Si Spotify devuelve no_active_device, dile a Hugo que abra Spotify en algún dispositivo."
 )
 _GREETING: str = "Buenos días Hugo. ¿Qué necesitas?"
 _GOODBYE: str = "Hasta luego Hugo. Avisa si me necesitas."
-_STARTUP_PROMPT: str = (
-    "Inicio de sesión. Consulta el calendario de hoy y saluda a Hugo con un resumen de sus eventos. "
-    "Si no hay eventos, di exactamente: 'Agenda libre hoy. Aprovecha.' Sé breve y natural."
-)
 _FALLBACK: str = "Done."
+
+
+# ---------------------------------------------------------------------------
+# Startup helpers
+# ---------------------------------------------------------------------------
+
+
+def _open_startup_tabs() -> None:
+    """Open all configured startup URLs in the default browser.
+
+    Uses JARVIS_STARTUP_URLS (comma-separated) as the full list when set.
+    Otherwise opens YouTube, Claude and Instagram, and appends ERP_URL when set.
+    """
+    raw: str = os.environ.get("JARVIS_STARTUP_URLS", "").strip()
+    if raw:
+        urls: list[str] = [u.strip() for u in raw.split(",") if u.strip()]
+    else:
+        urls = [
+            "https://youtube.com",
+            "https://claude.ai",
+            "https://instagram.com",
+        ]
+        erp_url: str = os.environ.get("ERP_URL", "").strip()
+        if erp_url:
+            urls.append(erp_url)
+
+    _log.info("Opening %d startup tabs.", len(urls))
+    for url in urls:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            _log.exception("Failed to open startup tab: %s", url)
+
+
+def _fetch_weather_phrase() -> str:
+    """Return a Spanish weather phrase for the greeting, or '' on any failure.
+
+    Reads OPENWEATHER_CITY and OPENWEATHER_UNITS from the environment.
+    Swallows all exceptions so the greeting never fails because of weather.
+    """
+    try:
+        weather = get_current_weather()
+        return format_weather_for_greeting(weather)
+    except Exception:
+        _log.warning("Weather fetch failed — greeting will proceed without it.")
+        return ""
+
+
+def _build_startup_prompt(weather_phrase: str) -> str:
+    """Return the startup prompt, optionally injecting a pre-formatted weather phrase."""
+    base = (
+        "Inicio de sesión. Consulta el calendario de hoy y saluda a Hugo con un resumen de sus eventos. "
+        "Si no hay eventos, di exactamente: 'Agenda libre hoy. Aprovecha.' Sé breve y natural."
+    )
+    if weather_phrase:
+        return (
+            f'{base} Incluye exactamente esta frase del tiempo al inicio del saludo: "{weather_phrase}"'
+        )
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -85,14 +162,16 @@ def _dispatch_tool_call(
     tool_input: dict[str, Any],
     calendar_service: Resource,
     gmail_service: Resource,
+    spotify_client: Any | None = None,
 ) -> Any:
-    """Route a single tool call to the appropriate calendar or Gmail function.
+    """Route a single tool call to the appropriate backend function.
 
     Args:
         tool_name: The name of the tool as declared in ``TOOLS``.
         tool_input: The raw ``input`` dict from the Anthropic tool-use block.
         calendar_service: An authenticated Google Calendar API service object.
         gmail_service: An authenticated Gmail API service object.
+        spotify_client: An authenticated Spotipy client, or None when unavailable.
 
     Returns:
         The return value of the dispatched function.  Always serialisable to
@@ -148,6 +227,45 @@ def _dispatch_tool_call(
         mark_as_read(gmail_service, tool_input["message_id"])
         return {"status": "ok"}
 
+    if tool_name == "get_current_weather":
+        city: str | None = tool_input.get("city")
+        units: str | None = tool_input.get("units")
+        return get_current_weather(city=city, units=units)
+
+    # --- Spotify tools ---
+    _no_spotify: dict[str, str] = {"error": "Spotify not configured. Check SPOTIFY_* env vars."}
+
+    if tool_name == "spotify_play":
+        if spotify_client is None:
+            return _no_spotify
+        return play(spotify_client, query=tool_input.get("query"))
+
+    if tool_name == "spotify_pause":
+        if spotify_client is None:
+            return _no_spotify
+        return pause(spotify_client)
+
+    if tool_name == "spotify_next":
+        if spotify_client is None:
+            return _no_spotify
+        return next_track(spotify_client)
+
+    if tool_name == "spotify_previous":
+        if spotify_client is None:
+            return _no_spotify
+        return previous_track(spotify_client)
+
+    if tool_name == "spotify_set_volume":
+        if spotify_client is None:
+            return _no_spotify
+        vol: int = max(0, min(int(tool_input["volume_percent"]), 100))
+        return set_volume(spotify_client, vol)
+
+    if tool_name == "spotify_current_track":
+        if spotify_client is None:
+            return _no_spotify
+        return get_current_track(spotify_client)
+
     raise ValueError(f"Unknown tool: {tool_name!r}")
 
 
@@ -185,19 +303,20 @@ def _run_agentic_turn(
     user_text: str,
     calendar_service: Resource,
     gmail_service: Resource,
+    spotify_client: Any | None = None,
 ) -> str:
     """Send *user_text* to Claude and handle the full tool-use loop.
 
     Iterates until Claude returns a ``stop_reason`` other than ``"tool_use"``,
     dispatching every tool call in each intermediate response to the
-    appropriate Google Calendar or Gmail function and feeding results back to
-    Claude.
+    appropriate backend function and feeding results back to Claude.
 
     Args:
         client: An initialised Anthropic API client.
         user_text: The transcribed user utterance.
         calendar_service: An authenticated Google Calendar API service object.
         gmail_service: An authenticated Gmail API service object.
+        spotify_client: An authenticated Spotipy client, or None when unavailable.
 
     Returns:
         The final plain-text response from Claude, or an empty string when
@@ -225,7 +344,7 @@ def _run_agentic_turn(
         for tool in tool_calls:
             try:
                 result = _dispatch_tool_call(
-                    tool.name, tool.input, calendar_service, gmail_service
+                    tool.name, tool.input, calendar_service, gmail_service, spotify_client
                 )
                 content = str(result)
             except Exception as exc:
@@ -260,15 +379,12 @@ def _run_agentic_turn(
 # ---------------------------------------------------------------------------
 
 
-def _init_services() -> tuple[anthropic.Anthropic, Resource, Resource]:
+def _init_services() -> tuple[anthropic.Anthropic, Resource, Resource, Any | None]:
     """Load environment variables and initialise all external services.
 
-    Reads ``ANTHROPIC_API_KEY`` from the environment (after loading ``.env``)
-    and raises :class:`RuntimeError` if it is absent.  Initialises and returns
-    the Anthropic client, the Google Calendar service, and the Gmail service.
-
     Returns:
-        A tuple of ``(anthropic_client, calendar_service, gmail_service)``.
+        A tuple of ``(anthropic_client, calendar_service, gmail_service, spotify_client)``.
+        ``spotify_client`` is ``None`` when Spotify env vars are missing or auth fails.
 
     Raises:
         RuntimeError: If ``ANTHROPIC_API_KEY`` is not set in the environment.
@@ -286,7 +402,14 @@ def _init_services() -> tuple[anthropic.Anthropic, Resource, Resource]:
     calendar_service: Resource = get_calendar_service()
     gmail_service: Resource = get_gmail_service()
 
-    return anthropic_client, calendar_service, gmail_service
+    spotify_client: Any | None = None
+    if _SPOTIFY_AVAILABLE:
+        try:
+            spotify_client = get_spotify_client()
+        except Exception:
+            _log.warning("Spotify auth failed — Spotify tools will be unavailable.")
+
+    return anthropic_client, calendar_service, gmail_service, spotify_client
 
 
 # ---------------------------------------------------------------------------
@@ -298,25 +421,29 @@ def main() -> None:
     """Run the Jarvis voice assistant loop.
 
     Continuously records audio, transcribes it, and forwards the text to
-    Claude.  Calendar and Gmail tool calls are handled transparently.  Press
-    ``Ctrl+C`` to stop.
+    Claude.  Calendar, Gmail, weather and Spotify tool calls are handled
+    transparently.  Press ``Ctrl+C`` to stop.
     """
-    # --- Initialise ---
     client: anthropic.Anthropic
     calendar_service: Resource
     gmail_service: Resource
-    client, calendar_service, gmail_service = _init_services()
+    spotify_client: Any | None
+    client, calendar_service, gmail_service, spotify_client = _init_services()
 
     set_voice_properties(rate=150, volume=0.9)
 
-    _log.info("Opening startup tabs.")
-    for url in ("https://youtube.com", "https://claude.ai", "https://instagram.com"):
-        webbrowser.open(url)
+    _open_startup_tabs()
+
+    weather_phrase: str = _fetch_weather_phrase()
 
     _log.info("Jarvis is ready.")
     try:
         startup_text: str = _run_agentic_turn(
-            client, _STARTUP_PROMPT, calendar_service, gmail_service
+            client,
+            _build_startup_prompt(weather_phrase),
+            calendar_service,
+            gmail_service,
+            spotify_client,
         )
         speak(startup_text if startup_text else _GREETING)
     except Exception:
@@ -348,7 +475,7 @@ def main() -> None:
                 _log.info("You said: %s", user_text)
 
                 final_text: str = _run_agentic_turn(
-                    client, user_text, calendar_service, gmail_service
+                    client, user_text, calendar_service, gmail_service, spotify_client
                 )
 
                 if final_text:
