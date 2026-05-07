@@ -478,8 +478,6 @@ def main() -> None:
 
     set_voice_properties(rate=150, volume=0.9)
 
-    _open_startup_tabs()
-
     _log.info("Jarvis is ready — waiting for wake word.")
 
     # --- Main loop ---
@@ -510,6 +508,7 @@ def main() -> None:
 
             if first_session:
                 first_session = False
+                _open_startup_tabs()
                 speak(_warm_greeting())
                 try:
                     weather_phrase: str = _fetch_weather_phrase()
