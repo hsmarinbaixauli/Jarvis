@@ -114,6 +114,8 @@ _FAREWELLS: tuple[str, ...] = (
 )
 _FALLBACK: str = "Done."
 
+_tabs_opened: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Startup helpers
@@ -135,7 +137,15 @@ def _open_startup_tabs() -> None:
 
     Uses JARVIS_STARTUP_URLS (comma-separated) as the full list when set.
     Otherwise opens YouTube, Claude and Instagram, and appends ERP_URL when set.
+
+    No-ops after the first successful call — tabs open at most once per
+    Jarvis session regardless of how many times the wake word is detected.
     """
+    global _tabs_opened
+    if _tabs_opened:
+        return
+    _tabs_opened = True
+
     raw: str = os.environ.get("JARVIS_STARTUP_URLS", "").strip()
     if raw:
         urls: list[str] = [u.strip() for u in raw.split(",") if u.strip()]
