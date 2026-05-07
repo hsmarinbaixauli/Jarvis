@@ -1,3 +1,4 @@
 @echo off
 cd /d "%~dp0"
-venv312\Scripts\python.exe -m src.main
+for /d /r src\ %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d"
+python -m src.main

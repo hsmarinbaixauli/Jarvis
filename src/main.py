@@ -452,88 +452,116 @@ def main() -> None:
 
     set_voice_properties(rate=150, volume=0.9)
 
-    speak(_warm_greeting())
-
     _open_startup_tabs()
 
-    weather_phrase: str = _fetch_weather_phrase()
-
-    _log.info("Jarvis is ready.")
-    try:
-        startup_text: str = _run_agentic_turn(
-            client,
-            _build_startup_prompt(weather_phrase),
-            calendar_service,
-            gmail_service,
-            spotify_client,
-        )
-        speak(startup_text if startup_text else _GREETING)
-    except Exception:
-        _log.exception("Error generating startup greeting")
-        speak(_GREETING)
+    _log.info("Jarvis is ready — waiting for wake word.")
 
     # --- Main loop ---
+    _MAX_CONSECUTIVE_EMPTY: int = 2
+
     def _interaction_loop(detector: WakeWordDetector | None) -> None:
-        """Run the listen → transcribe → respond loop.
+        """Outer/inner two-level conversation loop.
 
-        When *detector* is provided, waits for the wake word before each
-        recording.  When None, records immediately (fallback mode).
+        Outer loop: waits for the wake word (when detector is available),
+        then opens a conversation session.
+
+        Inner loop: listens and responds continuously within that session
+        — no wake word required between turns.  The session ends and
+        control returns to the outer loop when:
+          - is_goodbye() returns True  (exits the program entirely), or
+          - transcription is empty for _MAX_CONSECUTIVE_EMPTY turns in a row
+            (user walked away — go back to listening for the wake word).
+
+        On the very first wake word the full startup greeting (calendar +
+        weather summary) is spoken.  Subsequent wake words just say "¿Sí?".
         """
-        while True:
-            fd, audio_path = tempfile.mkstemp(suffix=".wav")
-            os.close(fd)
-            try:
-                if detector is not None:
-                    _log.info("Waiting for wake word...")
-                    detector.wait_for_wake_word()
-                    speak("¿Sí?")
+        first_session: bool = True
 
-                _log.info("Listening...")
-                record_audio(duration=_RECORD_DURATION, output_path=audio_path)
+        while True:  # outer: wake word gate
+            if detector is not None:
+                _log.info("Waiting for wake word...")
+                detector.wait_for_wake_word()
 
-                user_text: str = transcribe_audio(audio_path)
-
-                if not user_text.strip():
-                    continue
-
-                if len(user_text) > _MAX_TRANSCRIPT_LENGTH:
-                    _log.warning(
-                        "Transcript truncated from %d to %d chars.",
-                        len(user_text),
-                        _MAX_TRANSCRIPT_LENGTH,
+            if first_session:
+                first_session = False
+                speak(_warm_greeting())
+                try:
+                    weather_phrase: str = _fetch_weather_phrase()
+                    startup_text: str = _run_agentic_turn(
+                        client,
+                        _build_startup_prompt(weather_phrase),
+                        calendar_service,
+                        gmail_service,
+                        spotify_client,
                     )
-                    user_text = user_text[:_MAX_TRANSCRIPT_LENGTH]
+                    speak(startup_text if startup_text else _GREETING)
+                except Exception:
+                    _log.exception("Error generating startup greeting")
+                    speak(_GREETING)
+            else:
+                speak("¿Sí?")
 
-                _log.info("You said: %s", user_text)
+            # Inner: conversation session — no wake word between turns.
+            consecutive_empty: int = 0
+            while True:
+                fd, audio_path = tempfile.mkstemp(suffix=".wav")
+                os.close(fd)
+                try:
+                    _log.info("Listening...")
+                    record_audio(duration=_RECORD_DURATION, output_path=audio_path)
 
-                if is_goodbye(user_text):
-                    farewell = random.choice(_FAREWELLS)
-                    _log.info("Goodbye detected — exiting.")
-                    speak(farewell)
-                    return
+                    user_text: str = transcribe_audio(audio_path)
 
-                final_text: str = _run_agentic_turn(
-                    client, user_text, calendar_service, gmail_service, spotify_client
-                )
+                    if not user_text.strip():
+                        consecutive_empty += 1
+                        if consecutive_empty >= _MAX_CONSECUTIVE_EMPTY:
+                            _log.info(
+                                "%d consecutive empty turns — ending session.",
+                                _MAX_CONSECUTIVE_EMPTY,
+                            )
+                            break  # exit inner loop → back to wake word
+                        continue  # try once more before giving up
 
-                if final_text:
-                    _log.info("Jarvis: %s", final_text)
-                    if detector is not None:
-                        detector.set_speaking(True)
-                    speak(final_text)
+                    consecutive_empty = 0
+
+                    if len(user_text) > _MAX_TRANSCRIPT_LENGTH:
+                        _log.warning(
+                            "Transcript truncated from %d to %d chars.",
+                            len(user_text),
+                            _MAX_TRANSCRIPT_LENGTH,
+                        )
+                        user_text = user_text[:_MAX_TRANSCRIPT_LENGTH]
+
+                    _log.info("You said: %s", user_text)
+
+                    if is_goodbye(user_text):
+                        farewell = random.choice(_FAREWELLS)
+                        _log.info("Goodbye detected — exiting.")
+                        speak(farewell)
+                        sys.exit(0)
+
+                    final_text: str = _run_agentic_turn(
+                        client, user_text, calendar_service, gmail_service, spotify_client
+                    )
+
+                    if final_text:
+                        _log.info("Jarvis: %s", final_text)
+                        if detector is not None:
+                            detector.set_speaking(True)
+                        speak(final_text)
+                        if detector is not None:
+                            detector.set_speaking(False)
+                    else:
+                        speak(_FALLBACK)
+                except Exception:
+                    _log.exception("Error in main loop")
                     if detector is not None:
                         detector.set_speaking(False)
-                else:
-                    speak(_FALLBACK)
-            except Exception:
-                _log.exception("Error in main loop")
-                if detector is not None:
-                    detector.set_speaking(False)
-            finally:
-                try:
-                    os.unlink(audio_path)
-                except OSError:
-                    pass
+                finally:
+                    try:
+                        os.unlink(audio_path)
+                    except OSError:
+                        pass
 
     try:
         try:

@@ -3,11 +3,8 @@
 Uses sounddevice (already a project dependency) for audio capture at
 16 kHz / 16-bit mono — the format openWakeWord expects.
 
-No API key required.  The "hey_jarvis" built-in model is downloaded
+No API key required.  The "alexa" built-in model is downloaded
 automatically on first use and cached locally by openwakeword.
-
-"Buenos días Jarvis" is detected automatically because the phrase
-contains "jarvis", which the hey_jarvis model fires on.
 
 Usage:
     with WakeWordDetector() as detector:
@@ -31,7 +28,7 @@ _CHUNK_SIZE: int = 1_280     # samples = 80 ms at 16 kHz
 
 
 class WakeWordDetector:
-    """Listens continuously for the 'hey_jarvis' wake word using openWakeWord.
+    """Listens continuously for the 'alexa' wake word using openWakeWord.
 
     Call ``set_speaking(True)`` before TTS playback and
     ``set_speaking(False)`` after to suppress false triggers from speaker
@@ -40,14 +37,14 @@ class WakeWordDetector:
 
     def __init__(
         self,
-        model_name: str = "hey_jarvis",
-        threshold: float = 0.5,
+        model_name: str = "alexa",
+        threshold: float = 0.7,
     ) -> None:
         """Initialise openWakeWord with the given model.
 
         Args:
             model_name: openWakeWord built-in model name.  Defaults to
-                "hey_jarvis".  Other available models: "alexa",
+                "alexa".  Other available models: "hey_jarvis",
                 "hey_mycroft", etc.
             threshold: Detection score threshold in [0, 1].  Higher values
                 reduce false positives at the cost of recall.

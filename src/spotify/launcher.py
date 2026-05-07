@@ -29,16 +29,21 @@ def find_spotify_executable() -> Path | None:
     """Return the path to the Spotify executable, or None if not found.
 
     Searches candidate paths in priority order:
-    1. Per-user AppData install (most common)
-    2. Microsoft Store WindowsApps shim
-    3. Program Files install
-    4. PATH lookup as last resort
+    1. Windows Store versioned install (known path)
+    2. Per-user AppData install (classic installer)
+    3. Microsoft Store WindowsApps shim
+    4. Program Files install
+    5. PATH lookup as last resort
     """
     appdata = os.environ.get("APPDATA", "")
     localappdata = os.environ.get("LOCALAPPDATA", "")
     programfiles = os.environ.get("PROGRAMFILES", r"C:\Program Files")
 
-    candidates: list[str] = []
+    candidates: list[str] = [
+        # Windows Store versioned path — checked first as it is the known
+        # install location on this machine.
+        r"C:\Program Files\WindowsApps\SpotifyAB.SpotifyMusic_1.288.483.0_x64__zpdnekdrzrea0\Spotify.exe",
+    ]
     if appdata:
         candidates.append(os.path.join(appdata, "Spotify", "Spotify.exe"))
     if localappdata:
@@ -61,12 +66,19 @@ def find_spotify_executable() -> Path | None:
     return None
 
 
+_STORE_APP_ID: str = r"SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify"
+
+
 def launch_spotify() -> bool:
-    """Launch the Spotify desktop app in a detached background process.
+    """Launch Spotify via the Windows Store app URI, falling back to exe.
+
+    Uses ``start shell:AppsFolder\\<app-id>`` which is the correct way to
+    launch Microsoft Store apps — avoids the permission restrictions that
+    prevent direct Popen on WindowsApps executables.
 
     Returns:
-        True if the process was started successfully.
-        False if the Spotify executable could not be found.
+        True if the launch command was issued successfully.
+        False on any error.
 
     Uses a module-level lock so only one launch occurs even when multiple
     playback commands are dispatched simultaneously.
@@ -74,6 +86,18 @@ def launch_spotify() -> bool:
     import subprocess
 
     with _launch_lock:
+        try:
+            subprocess.run(
+                ["cmd", "/c", "start", f"shell:AppsFolder\\{_STORE_APP_ID}"],
+                check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            _log.info("Spotify launched via Store app URI (%s).", _STORE_APP_ID)
+            return True
+        except Exception as exc:
+            _log.warning("Store launch failed (%s) — trying exe fallback.", exc)
+
+        # Fallback: direct exe launch for non-Store installs.
         exe = find_spotify_executable()
         if exe is None:
             _log.warning("Spotify executable not found — cannot auto-launch.")
@@ -89,7 +113,7 @@ def launch_spotify() -> bool:
                 subprocess.Popen([str(exe)], creationflags=flags, close_fds=True)
             else:
                 subprocess.Popen([str(exe)], start_new_session=True, close_fds=True)
-            _log.info("Spotify launched from: %s", exe)
+            _log.info("Spotify launched from exe: %s", exe)
             return True
         except Exception as exc:
             _log.warning("Failed to launch Spotify: %s", exc)
