@@ -9,7 +9,8 @@
       "Bash(git -C \"C:\\\\Users\\\\Marketing\\\\Desktop\\\\Jarvis\" diff)",
       "Bash(python -m mypy src/ --ignore-missing-imports)",
       "Bash(python -c \"import ast, pathlib, sys; errors=[]; [errors.append\\(\\(p, e\\)\\) for p in pathlib.Path\\('src'\\).rglob\\('*.py'\\) for e in [None] if \\(ast.parse\\(p.read_text\\(encoding='utf-8'\\), filename=str\\(p\\)\\), None\\)[1] is not None] or print\\('All files parse OK'\\)\")",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/voice/listener.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }
