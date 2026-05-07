@@ -7,18 +7,21 @@ from typing import Any
 
 import requests
 
-_ENDPOINT = "https://api.openweathermap.org/data/2.5/weather"
-_TIMEOUT_SECONDS = 5.0
+_ENDPOINT: str = "https://api.openweathermap.org/data/2.5/weather"
+_TIMEOUT_SECONDS: float = 5.0
 
 
 def _format_response(raw: dict[str, Any], units: str) -> dict[str, Any]:
+    main: dict[str, Any] = raw.get("main", {})
+    weather_list: list[dict[str, Any]] = raw.get("weather", [{}])
+    wind: dict[str, Any] = raw.get("wind", {})
     return {
         "city": raw.get("name", ""),
-        "temperature": round(raw["main"]["temp"]),
-        "feels_like": round(raw["main"]["feels_like"]),
-        "description": raw["weather"][0]["description"],
-        "humidity": raw["main"]["humidity"],
-        "wind_kmh": round(raw["wind"]["speed"] * 3.6),
+        "temperature": round(main.get("temp", 0)),
+        "feels_like": round(main.get("feels_like", 0)),
+        "description": weather_list[0].get("description", "") if weather_list else "",
+        "humidity": main.get("humidity", 0),
+        "wind_kmh": round(wind.get("speed", 0) * 3.6),
         "units": units,
     }
 
@@ -58,4 +61,10 @@ def get_current_weather(city: str | None = None, units: str | None = None) -> di
         timeout=_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
-    return _format_response(response.json(), resolved_units)
+    data: dict[str, Any] = response.json()
+    # OWM returns HTTP 200 with cod="404" for unknown cities — check explicitly.
+    if str(data.get("cod", "200")) != "200":
+        raise RuntimeError(
+            f"OpenWeatherMap error for '{resolved_city}': {data.get('message', 'unknown error')}"
+        )
+    return _format_response(data, resolved_units)

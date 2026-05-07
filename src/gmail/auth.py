@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-logger: logging.Logger = logging.getLogger(__name__)
+_log: logging.Logger = logging.getLogger(__name__)
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -30,10 +30,10 @@ from googleapiclient.discovery import Resource
 # ---------------------------------------------------------------------------
 
 # gmail.modify subsumes gmail.readonly; gmail.send is required for replies.
-SCOPES: list[str] = [
+SCOPES: tuple[str, ...] = (
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.send",
-]
+)
 
 # Resolve paths relative to the project root (two levels above this file:
 # src/gmail/auth.py  ->  project root)
@@ -107,7 +107,11 @@ def _load_token(token_path: Path, scopes: list[str]) -> Credentials | None:
     if not token_path.exists():
         return None
 
-    creds = Credentials.from_authorized_user_file(str(token_path), scopes)
+    try:
+        creds = Credentials.from_authorized_user_file(str(token_path), scopes)
+    except Exception:  # noqa: BLE001 — malformed token triggers fresh OAuth
+        _log.warning("Discarding malformed token file %s — re-authorising.", token_path)
+        return None
 
     # Verify the token covers exactly the requested scopes.
     if creds.scopes and not set(scopes).issubset(set(creds.scopes)):
@@ -147,15 +151,22 @@ def _restrict_token_file(path: Path) -> None:
     if sys.platform == "win32":
         username: str | None = os.getenv("USERNAME")
         if not username:
-            logger.warning("Could not determine USERNAME; token file ACL not restricted: %s", path)
+            _log.warning("Could not determine USERNAME; token file ACL not restricted: %s", path)
             return
         try:
-            subprocess.run(
-                ["icacls", str(path), "/inheritance:r", "/grant:r", f"{username}:R"],
+            result = subprocess.run(
+                ["icacls", str(path), "/inheritance:r", "/grant:r", f"{username}:(F)"],
                 check=False,
+                capture_output=True,
             )
+            if result.returncode != 0:
+                _log.warning(
+                    "icacls exited with %d for %s: %s",
+                    result.returncode, path,
+                    result.stderr.decode(errors="replace"),
+                )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("icacls failed to restrict token file %s: %s", path, exc)
+            _log.warning("icacls failed to restrict token file %s: %s", path, exc)
     else:
         os.chmod(path, 0o600)
 

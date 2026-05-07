@@ -2,34 +2,48 @@
 
 ## Project Overview
 Personal AI voice assistant that listens to voice commands, understands intent 
-using Claude API with tool use, and executes actions like querying Google Calendar.
+using Claude API with tool use, and executes actions like querying Google Calendar,
+reading Gmail, controlling Spotify, and fetching weather.
 
 ## Tech Stack
-- Python 3.x
-- Claude API (tool use / function calling)
-- Whisper (speech-to-text)
+- Python 3.12
+- Claude API (tool use / function calling) — claude-haiku-4-5-20251001
+- openWakeWord (wake word detection — "alexa" model, offline)
+- Whisper (speech-to-text, local)
+- ElevenLabs (text-to-speech)
 - Google Calendar API (OAuth2)
-- TTS for voice responses
+- Gmail API (OAuth2)
+- Spotify Web API via spotipy
+- OpenWeatherMap REST API
 
 ## Requirements
 - Python 3.12
 - ffmpeg (installed automatically by setup.py)
 
 ## Commands
-- Setup: `python setup.py`
-- Dev: `python -m src.main`
+- Setup: `python setup.py` — creates venv312, installs dependencies, installs ffmpeg
+- Activate venv: `venv312\Scripts\activate` (Windows)
+- Run: `python -m src.main`
 - Tests: `pytest tests/`
+- Autostart: `powershell -ExecutionPolicy Bypass -File setup_autostart.ps1`
 
 ## Architecture
-- src/voice/listener.py → captures microphone audio
-- src/voice/speaker.py → text-to-speech output
-- src/transcription/whisper.py → audio to text
-- src/gcalendar/auth.py → Google OAuth2
-- src/gcalendar/events.py → Calendar API calls
+- src/main.py → orchestrator / entry point
+- src/voice/listener.py → captures microphone audio (SpeechRecognition)
+- src/voice/speaker.py → text-to-speech output (ElevenLabs)
+- src/voice/wake_word.py → wake word detection (openWakeWord "alexa" model)
+- src/transcription/whisper.py → audio to text (local Whisper model)
+- src/intent/goodbye.py → pre-LLM farewell phrase detection
+- src/gcalendar/auth.py → Google Calendar OAuth2
+- src/gcalendar/events.py → Calendar API calls (today, upcoming, create)
 - src/gmail/auth.py → Gmail OAuth2
 - src/gmail/messages.py → Gmail API calls (list unread, send reply, mark read)
-- src/tools/definitions.py → Claude tool definitions
-- src/main.py → orchestrator / entry point
+- src/weather/client.py → OpenWeatherMap REST client
+- src/weather/summary.py → weather phrase formatter for startup greeting
+- src/spotify/auth.py → Spotify OAuth2 (Authorization Code flow, token cached)
+- src/spotify/playback.py → Spotify playback control (play, pause, skip, volume)
+- src/spotify/launcher.py → auto-launch Spotify desktop app on Windows
+- src/tools/definitions.py → Claude tool definitions (static TOOLS list)
 
 ## Code Style
 - Python type hints always
@@ -57,3 +71,6 @@ using Claude API with tool use, and executes actions like querying Google Calend
 - python-testing → pytest patterns
 - tdd-workflow → TDD methodology
 - security-review → security checklist
+- voice-response → format text to be natural when spoken aloud by TTS
+- intent-parser → parse natural language voice commands into structured intents
+- calendar-reader → format raw calendar API responses as conversational language

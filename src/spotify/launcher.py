@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -83,8 +84,6 @@ def launch_spotify() -> bool:
     Uses a module-level lock so only one launch occurs even when multiple
     playback commands are dispatched simultaneously.
     """
-    import subprocess
-
     with _launch_lock:
         try:
             subprocess.run(

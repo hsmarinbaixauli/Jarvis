@@ -6,6 +6,7 @@ Jarvis to exit cleanly without an LLM round-trip.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 # Single-word phrases that trigger goodbye ONLY when the entire utterance is
@@ -30,10 +31,11 @@ _MULTI_WORD: frozenset[str] = frozenset({
 
 
 def _normalize(text: str) -> str:
-    """Lowercase, strip combining accents, collapse whitespace."""
+    """Lowercase, strip combining accents and punctuation, collapse whitespace."""
     nfkd = unicodedata.normalize("NFKD", text.lower())
     no_accents = "".join(c for c in nfkd if not unicodedata.combining(c))
-    return " ".join(no_accents.split())
+    no_punct = re.sub(r"[^\w\s]", "", no_accents)
+    return " ".join(no_punct.split())
 
 
 def is_goodbye(text: str) -> bool:

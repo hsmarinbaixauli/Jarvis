@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import spotipy
 from spotipy.cache_handler import CacheHandler
 from spotipy.oauth2 import SpotifyOAuth
 
-logger: logging.Logger = logging.getLogger(__name__)
+_log: logging.Logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Scopes
@@ -63,28 +65,23 @@ class _SecureCacheHandler(CacheHandler):
     # CacheHandler interface
     # ------------------------------------------------------------------
 
-    def get_cached_token(self) -> dict | None:  # type: ignore[override]
+    def get_cached_token(self) -> dict[str, Any] | None:
         """Return the cached token dict, or None if the file does not exist."""
         if not self._path.exists():
             return None
         try:
-            import json
             return json.loads(self._path.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to read Spotify token cache %s: %s", self._path, exc)
+            _log.warning("Failed to read Spotify token cache %s: %s", self._path, exc)
             return None
 
-    def save_token_to_cache(self, token_info: dict) -> None:  # type: ignore[override]
-        """Persist *token_info* to disk, replacing any existing file atomically."""
-        import json
-
+    def save_token_to_cache(self, token_info: dict[str, Any]) -> None:
+        """Persist *token_info* to disk atomically, replacing any existing file."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        # Remove the existing file before writing (mirrors gcalendar/auth.py:163
-        # and gmail/auth.py:167) to avoid Windows file-locking issues.
-        if self._path.exists():
-            self._path.unlink()
-        self._path.write_text(json.dumps(token_info), encoding="utf-8")
-        _restrict_token_file(self._path)
+        tmp = self._path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(token_info), encoding="utf-8")
+        _restrict_token_file(tmp)
+        tmp.replace(self._path)
 
 
 # ---------------------------------------------------------------------------
@@ -101,17 +98,24 @@ def _restrict_token_file(path: Path) -> None:
     if sys.platform == "win32":
         username: str | None = os.getenv("USERNAME")
         if not username:
-            logger.warning(
+            _log.warning(
                 "Could not determine USERNAME; token file ACL not restricted: %s", path
             )
             return
         try:
-            subprocess.run(
-                ["icacls", str(path), "/inheritance:r", "/grant:r", f"{username}:R"],
+            result = subprocess.run(
+                ["icacls", str(path), "/inheritance:r", "/grant:r", f"{username}:(F)"],
                 check=False,
+                capture_output=True,
             )
+            if result.returncode != 0:
+                _log.warning(
+                    "icacls exited with %d for %s: %s",
+                    result.returncode, path,
+                    result.stderr.decode(errors="replace"),
+                )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("icacls failed to restrict token file %s: %s", path, exc)
+            _log.warning("icacls failed to restrict token file %s: %s", path, exc)
     else:
         os.chmod(path, 0o600)
 

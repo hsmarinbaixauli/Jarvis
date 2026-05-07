@@ -4,7 +4,12 @@
       "Bash(python -m src.main)",
       "Bash(pip install *)",
       "Bash(python -c \"import sounddevice; import soundfile; print\\('sounddevice+soundfile ok'\\)\")",
-      "Bash(python -c \"from google.cloud import texttospeech; from src.voice.speaker import speak, set_voice_properties; print\\('speaker import ok'\\)\")"
+      "Bash(python -c \"from google.cloud import texttospeech; from src.voice.speaker import speak, set_voice_properties; print\\('speaker import ok'\\)\")",
+      "Bash(git -C \"C:\\\\Users\\\\Marketing\\\\Desktop\\\\Jarvis\" diff --staged)",
+      "Bash(git -C \"C:\\\\Users\\\\Marketing\\\\Desktop\\\\Jarvis\" diff)",
+      "Bash(python -m mypy src/ --ignore-missing-imports)",
+      "Bash(python -c \"import ast, pathlib, sys; errors=[]; [errors.append\\(\\(p, e\\)\\) for p in pathlib.Path\\('src'\\).rglob\\('*.py'\\) for e in [None] if \\(ast.parse\\(p.read_text\\(encoding='utf-8'\\), filename=str\\(p\\)\\), None\\)[1] is not None] or print\\('All files parse OK'\\)\")",
+      "Bash(python -c ' *)"
     ]
   }
 }

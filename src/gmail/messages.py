@@ -14,8 +14,8 @@ from typing import Any
 
 from googleapiclient.discovery import Resource
 
-# Module-level cache so the profile API is called at most once per process.
-_sender_email_cache: dict[int, str] = {}
+# Module-level cache — single-user assistant, so one address per process is sufficient.
+_sender_email: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -200,11 +200,11 @@ def _get_sender_email(service: Resource) -> str:
     Returns:
         The email address string associated with the authenticated account.
     """
-    key: int = id(service)
-    if key not in _sender_email_cache:
+    global _sender_email
+    if _sender_email is None:
         profile: dict[str, Any] = service.users().getProfile(userId="me").execute()
-        _sender_email_cache[key] = profile["emailAddress"]
-    return _sender_email_cache[key]
+        _sender_email = profile["emailAddress"]
+    return _sender_email
 
 
 def _extract_header(headers: list[dict[str, str]], name: str) -> str:
