@@ -70,7 +70,6 @@ _log = logging.getLogger(__name__)
 
 _MODEL: str = "claude-haiku-4-5-20251001"
 _MAX_TOKENS: int = 1024
-_RECORD_DURATION: int = 5
 _MAX_TOOL_ITERATIONS: int = 10
 _MAX_TRANSCRIPT_LENGTH: int = 2000  # guard against Whisper hallucinations / cost abuse
 _SYSTEM_PROMPT: str = (
@@ -79,15 +78,29 @@ _SYSTEM_PROMPT: str = (
     "Responde siempre en español, con frases cortas y naturales, pensadas para ser escuchadas, no leídas. "
     "Evita listas, formato markdown y respuestas largas — esto es voz, no texto. "
     "Usa el nombre de Hugo con naturalidad, pero no en cada frase. "
-    "Al iniciar la sesión del día, consulta el calendario y saluda con un resumen breve: "
-    "por ejemplo, 'Buenos días Hugo. Tienes 3 reuniones hoy. La primera es a las 10 con el equipo. ¿Qué más necesitas?' "
-    "Si no hay nada en la agenda: 'Agenda libre hoy. Aprovecha.' "
+    "Al iniciar la sesión del día, consulta el calendario y saluda con un resumen breve y natural. "
+    "Nunca repitas la misma frase de saludo dos veces seguidas — varía siempre. "
+    "Ejemplos de saludos con eventos: "
+    "'Hugo, ¿qué hay? Tienes 3 cosas hoy, la primera a las 10.' "
+    "'Buenas. Agenda cargada: reunión de equipo a las 10, llamada a las 12, y una más por la tarde.' "
+    "'Mañana movidita — tres reuniones. Arrancamos a las 10.' "
+    "'Buenos días. Hoy tienes la reunión de equipo a las 10. ¿Empezamos?' "
+    "A veces menciona la hora del día de forma casual, a veces no. "
+    "Ejemplos de saludos con agenda vacía (varía entre ellos, nunca uses siempre el mismo): "
+    "'Día libre, aprovéchalo.' "
+    "'Sin reuniones hoy. ¿Qué necesitas?' "
+    "'Agenda limpia. ¿Qué te traigo?' "
+    "'Nada en el calendario. El día es tuyo.' "
+    "'Libre de reuniones. ¿En qué andamos?' "
     "Humor ligero cuando sea apropiado, nunca forzado. "
     "Nunca digas '¿En qué puedo ayudarte?' ni frases genéricas de asistente. "
     "Antes de llamar a send_email_reply, lee en voz alta el destinatario y el cuerpo completo del mensaje "
     "y espera confirmación verbal explícita del usuario en el siguiente turno. "
     "Para controlar la música usa las herramientas spotify_*. "
-    "Cuando Hugo diga 'pon jazz', 'pon algo de Miles Davis', llama a spotify_play con el query. "
+    "Cuando Hugo diga 'pon jazz' usa spotify_play con query='jazz'. "
+    "Cuando diga 'pon a Duki' usa artist='Duki'. "
+    "Cuando diga 'pon La Víctima de Duki' usa artist='Duki', track='La Víctima'. "
+    "Corrige errores ortográficos de voz antes de pasar los parámetros. "
     "Cuando diga 'para' o 'pausa', llama a spotify_pause. 'Siguiente' o 'salta' usa spotify_next. "
     "Si Spotify devuelve no_active_device tras el reintento automático, dile a Hugo que abra Spotify manualmente en algún dispositivo."
 )
@@ -161,12 +174,20 @@ def _fetch_weather_phrase() -> str:
 def _build_startup_prompt(weather_phrase: str) -> str:
     """Return the startup prompt, optionally injecting a pre-formatted weather phrase."""
     base = (
-        "Inicio de sesión. Consulta el calendario de hoy y saluda a Hugo con un resumen de sus eventos. "
-        "Si no hay eventos, di exactamente: 'Agenda libre hoy. Aprovecha.' Sé breve y natural."
+        "Inicio de sesión. "
+        "IMPORTANTE: El saludo de bienvenida ya fue pronunciado en voz alta antes de este mensaje — "
+        "NO repitas buenos días, buenas tardes ni ninguna frase de saludo. "
+        "Ve directo al resumen del tiempo y del calendario. "
+        "Consulta el calendario de hoy y responde con: tiempo + eventos del día. "
+        "Ejemplo: 'Hace 20 grados y soleado. Tienes dos reuniones hoy: una a las 10 con el equipo "
+        "y otra a las 3 con el cliente. ¿Algo más?' "
+        "Si no hay eventos, di solo el tiempo y una variación breve de agenda libre, "
+        "por ejemplo: 'Hace 18 grados. Día libre, aprovéchalo.' "
+        "Sé breve y natural."
     )
     if weather_phrase:
         return (
-            f'{base} Incluye exactamente esta frase del tiempo al inicio del saludo: "{weather_phrase}"'
+            f'{base} Usa exactamente esta frase del tiempo: "{weather_phrase}"'
         )
     return base
 
@@ -257,7 +278,12 @@ def _dispatch_tool_call(
     if tool_name == "spotify_play":
         if spotify_client is None:
             return _no_spotify
-        return play(spotify_client, query=tool_input.get("query"))
+        return play(
+            spotify_client,
+            query=tool_input.get("query"),
+            artist=tool_input.get("artist"),
+            track=tool_input.get("track"),
+        )
 
     if tool_name == "spotify_pause":
         if spotify_client is None:
@@ -508,7 +534,7 @@ def main() -> None:
                 os.close(fd)
                 try:
                     _log.info("Listening...")
-                    record_audio(duration=_RECORD_DURATION, output_path=audio_path)
+                    record_audio(output_path=audio_path)
 
                     user_text: str = transcribe_audio(audio_path)
 

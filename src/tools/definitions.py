@@ -183,20 +183,38 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "spotify_play",
         "description": (
-            "Start or resume Spotify playback. If a search query is provided "
-            "(genre, artist, album, song name, mood), search Spotify and start "
-            "playing the best match. If omitted, simply resumes whatever is "
-            "currently loaded. Returns track info or no_active_device if Spotify "
-            "is not open on any device."
+            "Start or resume Spotify playback. "
+            "Use 'artist' + 'track' for a specific song, 'artist' alone to play an "
+            "artist's top tracks, or 'query' for a genre/mood/playlist search. "
+            "Omit all three to simply resume. "
+            "Input may come from voice recognition and could have spelling errors — "
+            "use your knowledge of music to correct misspellings before searching "
+            "(e.g. 'Duky', 'Dukis', 'Ducky' → 'Duki'). "
+            "Always use the correct spelling in the parameters you pass."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
+                "artist": {
+                    "type": "string",
+                    "description": (
+                        "Artist name with correct spelling. Use alone to play the "
+                        "artist's top tracks, or together with 'track' for a specific song."
+                    ),
+                },
+                "track": {
+                    "type": "string",
+                    "description": (
+                        "Song title with correct spelling. Must be combined with "
+                        "'artist' for a precise match."
+                    ),
+                },
                 "query": {
                     "type": "string",
                     "description": (
-                        "Optional free-text search: 'jazz', 'Bad Bunny', 'lofi "
-                        "para estudiar', 'Kind of Blue'. Omit to resume."
+                        "Free-text search for a genre, mood, or playlist: "
+                        "'jazz', 'lofi para estudiar', 'música relajante'. "
+                        "Use when no specific artist or track is requested."
                     ),
                 },
             },

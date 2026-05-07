@@ -68,5 +68,5 @@ def transcribe_audio(audio_file_path: str) -> str:
         )
 
     model: Any = _get_model()
-    result: dict[str, Any] = model.transcribe(str(path))
+    result: dict[str, Any] = model.transcribe(str(path), language="es")
     return result["text"].strip()

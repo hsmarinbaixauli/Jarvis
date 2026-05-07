@@ -12,6 +12,8 @@ from src.spotify.launcher import launch_spotify, wait_for_active_device
 
 _log = logging.getLogger(__name__)
 
+_cached_device_id: str | None = None
+
 
 def _no_device() -> dict[str, str]:
     return {"status": "no_active_device"}
@@ -45,9 +47,20 @@ def _has_any_device(client: spotipy.Spotify) -> bool:
 
 
 def _get_first_device_id(client: spotipy.Spotify) -> str | None:
-    """Return the id of the first available Connect device, or None."""
+    """Return the id of the first available Connect device, falling back to the last known id."""
+    global _cached_device_id
     devices = (client.devices() or {}).get("devices") or []
-    return devices[0]["id"] if devices else None
+    if devices:
+        _cached_device_id = devices[0]["id"]
+        return _cached_device_id
+    if _cached_device_id:
+        _log.warning("[spotify] No devices reported — falling back to cached device_id=%r", _cached_device_id)
+    return _cached_device_id
+
+
+def _clear_device_cache() -> None:
+    global _cached_device_id
+    _cached_device_id = None
 
 
 def _handle_no_device(
@@ -77,18 +90,28 @@ def _handle_no_device(
     try:
         return retry()
     except spotipy.SpotifyException as exc:
+        _clear_device_cache()
         _log_spotify_exc(exc, "_handle_no_device/retry")
         if exc.http_status == 404:
             return _no_device()
         raise
 
 
-def play(client: spotipy.Spotify, query: str | None = None) -> dict[str, Any]:
+def play(
+    client: spotipy.Spotify,
+    query: str | None = None,
+    artist: str | None = None,
+    track: str | None = None,
+) -> dict[str, Any]:
     """Resume playback or start a search-driven play.
 
     Execution order: check device → launch if needed → search → play.
-    Searching before confirming a device is ready wastes the API call and
-    produces confusing 404 errors, so device readiness is verified first.
+
+    Search modes (evaluated in priority order):
+    - artist + track → precise field-filter search: track:"{track}" artist:"{artist}"
+    - artist only   → artist context URI (plays the artist's top tracks)
+    - query only    → playlist-first search for genres / moods
+    - nothing       → resume current playback
     """
     # 1) Check for an active device — launch Spotify proactively if missing.
     if not _has_any_device(client):
@@ -110,37 +133,56 @@ def play(client: spotipy.Spotify, query: str | None = None) -> dict[str, Any]:
             _log.warning("[spotify] transferring playback to device_id=%r", device_id)
             client.transfer_playback(device_id, force_play=True)
 
-    # 2) Search (only after a device is confirmed ready).
-    playlist_uri: str | None = None
-    track_uri: str | None = None
-    track_meta: dict[str, Any] | None = None
-    playlist_name: str | None = None
+    # 2) Resolve what to play (only after a device is confirmed ready).
+    context_uri: str | None = None
+    track_uris: list[str] | None = None
+    result_meta: dict[str, Any] = {}
 
-    if query:
+    if artist and track:
+        # Precise track lookup using Spotify field filters.
+        q = f'track:"{track}" artist:"{artist}"'
+        results = client.search(q=q, type="track", limit=1)
+        items = (results.get("tracks") or {}).get("items") or []
+        if not items:
+            return {"status": "no_results", "artist": artist, "track": track}
+        track_uris = [items[0]["uri"]]
+        result_meta = _track_info(items[0])
+
+    elif artist:
+        # Artist context — Spotify plays the artist's top tracks.
+        results = client.search(q=artist, type="artist", limit=1)
+        items = (results.get("artists") or {}).get("items") or []
+        if not items:
+            return {"status": "no_results", "artist": artist}
+        context_uri = items[0]["uri"]
+        result_meta = {"type": "artist", "name": items[0]["name"]}
+
+    elif query:
+        # Genre / mood — playlist-first, then track fallback.
         results = client.search(q=query, type="playlist,track", limit=1)
         playlists = (results.get("playlists") or {}).get("items") or []
         tracks = (results.get("tracks") or {}).get("items") or []
         if not playlists and not tracks:
             return {"status": "no_results", "query": query}
         if playlists:
-            playlist_uri = playlists[0]["uri"]
-            playlist_name = playlists[0]["name"]
-        elif tracks:
-            track_uri = tracks[0]["uri"]
-            track_meta = _track_info(tracks[0])
+            context_uri = playlists[0]["uri"]
+            result_meta = {"type": "playlist", "name": playlists[0]["name"]}
+        else:
+            track_uris = [tracks[0]["uri"]]
+            result_meta = _track_info(tracks[0])
 
     # 3) Play — always pass device_id so Spotify knows the exact target.
     device_id = _get_first_device_id(client)
     try:
-        if playlist_uri:
-            client.start_playback(device_id=device_id, context_uri=playlist_uri)
-            return {"status": "playing", "type": "playlist", "name": playlist_name}
-        if track_uri:
-            client.start_playback(device_id=device_id, uris=[track_uri])
-            return {"status": "playing"} | (track_meta or {})
-        client.start_playback(device_id=device_id)
-        return {"status": "playing"}
+        if context_uri:
+            client.start_playback(device_id=device_id, context_uri=context_uri)
+        elif track_uris:
+            client.start_playback(device_id=device_id, uris=track_uris)
+        else:
+            client.start_playback(device_id=device_id)
+        return {"status": "playing"} | result_meta
     except spotipy.SpotifyException as exc:
+        _clear_device_cache()
         _log_spotify_exc(exc, "play")
         if exc.http_status == 404:
             return _no_device()
@@ -156,6 +198,7 @@ def pause(client: spotipy.Spotify) -> dict[str, Any]:
     try:
         return _do()
     except spotipy.SpotifyException as exc:
+        _clear_device_cache()
         _log_spotify_exc(exc, "pause")
         if exc.http_status == 404:
             return _handle_no_device(client, _do)
@@ -176,6 +219,7 @@ def next_track(client: spotipy.Spotify) -> dict[str, Any]:
     try:
         return _do()
     except spotipy.SpotifyException as exc:
+        _clear_device_cache()
         _log_spotify_exc(exc, "next_track")
         if exc.http_status == 404:
             return _handle_no_device(client, _do)
@@ -196,6 +240,7 @@ def previous_track(client: spotipy.Spotify) -> dict[str, Any]:
     try:
         return _do()
     except spotipy.SpotifyException as exc:
+        _clear_device_cache()
         _log_spotify_exc(exc, "previous_track")
         if exc.http_status == 404:
             return _handle_no_device(client, _do)
@@ -213,6 +258,7 @@ def set_volume(client: spotipy.Spotify, volume_percent: int) -> dict[str, Any]:
     try:
         return _do()
     except spotipy.SpotifyException as exc:
+        _clear_device_cache()
         _log_spotify_exc(exc, "set_volume")
         if exc.http_status == 404:
             return _handle_no_device(client, _do)
@@ -234,6 +280,7 @@ def get_current_track(client: spotipy.Spotify) -> dict[str, Any]:
         result["duration_ms"] = item.get("duration_ms", 0)
         return result
     except spotipy.SpotifyException as exc:
+        _clear_device_cache()
         _log_spotify_exc(exc, "get_current_track")
         if exc.http_status == 404:
             return _no_device()
